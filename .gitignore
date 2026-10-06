@@ -1,7 +1,17 @@
 node_modules/
 target/
 .venv/
+venv/
 __pycache__/
 .env
+ai-service/.env
 *.log
-.DS_Storecd backend
+.DS_Store
+
+# License files with tokens
+*.license
+infrastructure/minio.license
+
+# Build artifacts
+frontend/dist/
+.bob/

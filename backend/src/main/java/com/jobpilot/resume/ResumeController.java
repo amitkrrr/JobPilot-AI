@@ -6,6 +6,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -60,5 +61,20 @@ public class ResumeController {
                 .contentType(MediaType.parseMediaType(resume.getContentType()))
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + resume.getFileName() + "\"")
                 .body(data);
+    }
+
+    @PostMapping("/{id}/parse")
+    public com.jobpilot.dto.profile.ProfileResponse parseResume(
+            Authentication authentication,
+            @PathVariable Long id) {
+        return resumeService.parseAndPopulateProfile(authentication.getName(), id);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteResume(
+            Authentication authentication,
+            @PathVariable Long id) {
+        resumeService.deleteResume(authentication.getName(), id);
+        return ResponseEntity.noContent().build();
     }
 }

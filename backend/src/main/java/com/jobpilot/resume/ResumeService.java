@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.jobpilot.dto.resume.ResumeResponse;
 import com.jobpilot.storage.StorageService;
@@ -19,17 +20,20 @@ public class ResumeService {
     private final CandidateProfileRepository profileRepository;
     private final UserRepository userRepository;
     private final StorageService storageService;
+    private final AIParsingClient aiParsingClient;
 
     public ResumeService(
             ResumeRepository resumeRepository,
             CandidateProfileRepository profileRepository,
             UserRepository userRepository,
-            StorageService storageService) {
+            StorageService storageService,
+            AIParsingClient aiParsingClient) {
 
         this.resumeRepository = resumeRepository;
         this.profileRepository = profileRepository;
         this.userRepository = userRepository;
         this.storageService = storageService;
+        this.aiParsingClient = aiParsingClient;
     }
 
     public ResumeResponse uploadResume(String email, String fileName, String contentType, byte[] bytes) {
@@ -89,6 +93,87 @@ public class ResumeService {
 
         return resumeRepository.findByIdAndCandidateProfileId(resumeId, profile.getId())
                 .orElseThrow(() -> new IllegalArgumentException("Resume not found or access denied."));
+    }
+
+    public com.jobpilot.dto.profile.ProfileResponse parseAndPopulateProfile(String email, Long resumeId) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        CandidateProfile profile = profileRepository.findByUserId(user.getId())
+                .orElseThrow(() -> new IllegalArgumentException("Candidate profile not found."));
+
+        Resume resume = resumeRepository.findByIdAndCandidateProfileId(resumeId, profile.getId())
+                .orElseThrow(() -> new IllegalArgumentException("Resume not found or access denied."));
+
+        // Trigger Python AI Service
+        com.jobpilot.dto.resume.ResumeParsedResponse parsed = aiParsingClient.parseResume(resume.getS3Key());
+
+        // Auto-populate Candidate Profile with AI-extracted results!
+        if (parsed.getPhone() != null) {
+            profile.setPhone(parsed.getPhone());
+        }
+        if (parsed.getLocation() != null) {
+            profile.setLocation(parsed.getLocation());
+        }
+        if (parsed.getHeadline() != null) {
+            profile.setHeadline(parsed.getHeadline());
+        }
+        if (parsed.getYearsOfExperience() != null) {
+            profile.setYearsOfExperience(parsed.getYearsOfExperience());
+        }
+        if (parsed.getCurrentCompany() != null) {
+            profile.setCurrentCompany(parsed.getCurrentCompany());
+        }
+        if (parsed.getCurrentRole() != null) {
+            profile.setCurrentRole(parsed.getCurrentRole());
+        }
+        if (parsed.getLinkedinUrl() != null) {
+            profile.setLinkedinUrl(parsed.getLinkedinUrl());
+        }
+        if (parsed.getGithubUrl() != null) {
+            profile.setGithubUrl(parsed.getGithubUrl());
+        }
+        if (parsed.getPortfolioUrl() != null) {
+            profile.setPortfolioUrl(parsed.getPortfolioUrl());
+        }
+        if (parsed.getSkills() != null && !parsed.getSkills().isEmpty()) {
+            profile.setSkills(String.join(", ", parsed.getSkills()));
+        }
+
+        CandidateProfile savedProfile = profileRepository.save(profile);
+
+        // Return updated profile details
+        return new com.jobpilot.dto.profile.ProfileResponse(
+                savedProfile.getId(),
+                user.getName(),
+                user.getEmail(),
+                savedProfile.getPhone(),
+                savedProfile.getLocation(),
+                savedProfile.getHeadline(),
+                savedProfile.getYearsOfExperience(),
+                savedProfile.getCurrentCompany(),
+                savedProfile.getCurrentRole(),
+                savedProfile.getLinkedinUrl(),
+                savedProfile.getGithubUrl(),
+                savedProfile.getPortfolioUrl(),
+                savedProfile.getSkills()
+        );
+    }
+
+    @Transactional
+    public void deleteResume(String email, Long resumeId) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        CandidateProfile profile = profileRepository.findByUserId(user.getId())
+                .orElseThrow(() -> new IllegalArgumentException("Candidate profile not found."));
+
+        Resume resume = resumeRepository.findByIdAndCandidateProfileId(resumeId, profile.getId())
+                .orElseThrow(() -> new IllegalArgumentException("Resume not found or access denied."));
+
+        // Delete from MinIO first, then remove DB record
+        storageService.deleteFile(resume.getS3Key());
+        resumeRepository.delete(resume);
     }
 
     private ResumeResponse toResponse(Resume resume) {

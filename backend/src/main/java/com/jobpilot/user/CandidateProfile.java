@@ -1,5 +1,6 @@
 package com.jobpilot.user;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -26,17 +27,27 @@ public class CandidateProfile {
 
     private String headline;
 
+    @Column(name = "years_of_experience")
     private Integer yearsOfExperience;
 
+    @Column(name = "current_company")
     private String currentCompany;
 
+    @Column(name = "current_role")
     private String currentRole;
 
+    @Column(name = "linkedin_url")
     private String linkedinUrl;
 
+    @Column(name = "github_url")
     private String githubUrl;
 
+    @Column(name = "portfolio_url")
     private String portfolioUrl;
+
+    // Stored as comma-separated string; Spring handles DDL via hibernate auto-update
+    @Column(name = "skills", columnDefinition = "TEXT")
+    private String skills;
 
     public CandidateProfile() {
     }
@@ -127,5 +138,13 @@ public class CandidateProfile {
 
     public void setPortfolioUrl(String portfolioUrl) {
         this.portfolioUrl = portfolioUrl;
+    }
+
+    public String getSkills() {
+        return skills;
+    }
+
+    public void setSkills(String skills) {
+        this.skills = skills;
     }
 }

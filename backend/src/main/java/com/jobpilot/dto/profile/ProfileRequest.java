@@ -34,6 +34,8 @@ public class ProfileRequest {
     @Size(max = 300, message = "Portfolio URL is too long")
     private String portfolioUrl;
 
+    private String skills;
+
     public ProfileRequest() {
     }
 
@@ -107,5 +109,13 @@ public class ProfileRequest {
 
     public void setPortfolioUrl(String portfolioUrl) {
         this.portfolioUrl = portfolioUrl;
+    }
+
+    public String getSkills() {
+        return skills;
+    }
+
+    public void setSkills(String skills) {
+        this.skills = skills;
     }
 }

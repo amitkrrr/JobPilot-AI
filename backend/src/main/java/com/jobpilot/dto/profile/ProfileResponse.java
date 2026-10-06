@@ -14,6 +14,7 @@ public class ProfileResponse {
     private String linkedinUrl;
     private String githubUrl;
     private String portfolioUrl;
+    private String skills;
 
     public ProfileResponse(
             Long id,
@@ -27,7 +28,8 @@ public class ProfileResponse {
             String currentRole,
             String linkedinUrl,
             String githubUrl,
-            String portfolioUrl) {
+            String portfolioUrl,
+            String skills) {
 
         this.id = id;
         this.name = name;
@@ -41,6 +43,7 @@ public class ProfileResponse {
         this.linkedinUrl = linkedinUrl;
         this.githubUrl = githubUrl;
         this.portfolioUrl = portfolioUrl;
+        this.skills = skills;
     }
 
     public Long getId() {
@@ -89,5 +92,9 @@ public class ProfileResponse {
 
     public String getPortfolioUrl() {
         return portfolioUrl;
+    }
+
+    public String getSkills() {
+        return skills;
     }
 }
