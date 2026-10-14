@@ -57,7 +57,7 @@ public class JoobleConnector implements JobSource {
             String keywords = buildKeywords(request);
             String location = request.getLocation() != null ? request.getLocation() : "India";
 
-            JoobleRequest body = new JoobleRequest(keywords, location);
+            JoobleRequest body = new JoobleRequest(keywords, location, request.getPage());
 
             JoobleResponse response = restClient.post()
                     .uri("/" + apiKey)
@@ -131,10 +131,13 @@ public class JoobleConnector implements JobSource {
         String keywords;
         @JsonProperty("location")
         String location;
+        @JsonProperty("page")
+        int page;
 
-        JoobleRequest(String keywords, String location) {
+        JoobleRequest(String keywords, String location, int page) {
             this.keywords = keywords;
             this.location = location;
+            this.page = page + 1;
         }
     }
 

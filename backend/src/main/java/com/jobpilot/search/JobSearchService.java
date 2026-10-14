@@ -2,7 +2,6 @@ package com.jobpilot.search;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -64,13 +63,43 @@ public class JobSearchService {
     }
 
     private List<NormalizedJob> deduplicate(List<NormalizedJob> jobs) {
-        Map<String, NormalizedJob> seen = new LinkedHashMap<>();
+        List<NormalizedJob> uniqueJobs = new ArrayList<>();
         for (NormalizedJob job : jobs) {
-            String key = normalize(job.getTitle()) + "|" + normalize(job.getCompany());
-            // First occurrence wins (connectors are ordered by priority)
-            seen.putIfAbsent(key, job);
+            String normTitle = normalize(job.getTitle());
+            String normCompany = normalize(job.getCompany());
+
+            boolean isDuplicate = false;
+            for (NormalizedJob existing : uniqueJobs) {
+                String existingTitle = normalize(existing.getTitle());
+                String existingCompany = normalize(existing.getCompany());
+
+                if (normTitle.equals(existingTitle)) {
+                    if (normCompany.equals(existingCompany) || hasCompanyOverlap(normCompany, existingCompany)) {
+                        isDuplicate = true;
+                        break;
+                    }
+                }
+            }
+            if (!isDuplicate) {
+                uniqueJobs.add(job);
+            }
         }
-        return new ArrayList<>(seen.values());
+        return uniqueJobs;
+    }
+
+    private boolean hasCompanyOverlap(String c1, String c2) {
+        if (c1.length() >= 6 && c2.length() >= 6) {
+            if (c1.substring(0, 6).equals(c2.substring(0, 6))) {
+                return true;
+            }
+            for (int i = 0; i <= c1.length() - 6; i++) {
+                String sub = c1.substring(i, i + 6);
+                if (c2.contains(sub)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private List<NormalizedJob> rank(List<NormalizedJob> jobs, JobSearchRequest request) {

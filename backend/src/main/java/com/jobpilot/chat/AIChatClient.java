@@ -38,9 +38,16 @@ public class AIChatClient {
      * Returns null if the AI service is unreachable — caller handles fallback.
      */
     public SearchIntent classifyIntent(String message, ProfileResponse profile) {
+        return classifyIntent(message, profile, null);
+    }
+
+    public SearchIntent classifyIntent(String message, ProfileResponse profile, SearchIntent lastIntent) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("message", message);
         payload.put("profile", profile);
+        if (lastIntent != null) {
+            payload.put("last_intent", lastIntent);
+        }
 
         try {
             return restClient.post()

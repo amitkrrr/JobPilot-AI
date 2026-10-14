@@ -16,4 +16,7 @@ public interface JobRepository extends JpaRepository<Job, Long> {
 
     // Retrieve a specific job by id and user to prevent cross-user data tampering
     Optional<Job> findByIdAndUser(Long id, User user);
+
+    // Duplicate check for job saving
+    boolean existsByUserAndTitleIgnoreCaseAndCompanyIgnoreCase(User user, String title, String company);
 }

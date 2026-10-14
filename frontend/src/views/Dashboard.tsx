@@ -68,6 +68,8 @@ interface JobData {
   salaryInfo?: string;
   experienceRequired?: string;
   skills?: string[];
+  status?: 'SAVED' | 'APPLIED' | 'INTERVIEW' | 'OFFER' | 'REJECTED';
+  notes?: string;
   createdAt: string;
 }
 
@@ -82,6 +84,7 @@ interface Message {
   content: string;
   jobs?: JobData[];
   searchLinks?: SearchLink[];
+  hasMore?: boolean;
   timestamp: Date;
 }
 
@@ -95,6 +98,9 @@ export default function Dashboard() {
 
   // Chat state
   const [chatInput, setChatInput] = useState('');
+  const [lastIntent, setLastIntent] = useState<any>(null);
+  const [lastQuery, setLastQuery] = useState<string>('');
+  const [currentPage, setCurrentPage] = useState<number>(0);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
@@ -105,6 +111,8 @@ export default function Dashboard() {
   ]);
   const [chatLoading, setChatLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [parsingResumeIds, setParsingResumeIds] = useState<Set<number>>(new Set());
+  const [jobNotes, setJobNotes] = useState('');
 
   // Profile Edit / Create state
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -148,6 +156,20 @@ export default function Dashboard() {
     enabled: !!selectedJob?.id,
   });
 
+  // F#1: AI Match Score Query for Selected Job
+  const {
+    data: matchScoreData,
+    isLoading: matchScoreLoading,
+  } = useQuery<{ score: number; strengths: string[]; gaps: string[]; verdict: string }>({
+    queryKey: ['job-match-score', selectedJob?.id],
+    queryFn: async () => {
+      if (!selectedJob?.id) return null;
+      const res = await api.post(`/jobs/${selectedJob.id}/match`);
+      return res.data;
+    },
+    enabled: !!selectedJob?.id && activeDetailTab === 'analysis',
+  });
+
   // Manual Job Form State
   const [jobForm, setJobForm] = useState({
     title: '',
@@ -165,10 +187,31 @@ export default function Dashboard() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, chatLoading]);
 
+  // F#8: Chat history seeding on mount
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        const res = await api.get('/chat/history');
+        if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+          const historyMessages: Message[] = res.data.map((m: any) => ({
+            id: String(m.id || Math.random()),
+            sender: m.role === 'USER' ? 'USER' : 'AI',
+            content: m.content,
+            timestamp: new Date(m.createdAt || Date.now())
+          }));
+          setMessages(historyMessages);
+        }
+      } catch (e) {
+        console.debug('Failed to load chat history', e);
+      }
+    };
+    loadHistory();
+  }, []);
+
   // Fetch Candidate Profile
-  const { 
-    data: profile, 
-    isLoading: profileLoading 
+  const {
+    data: profile,
+    isLoading: profileLoading
   } = useQuery<ProfileData, any>({
     queryKey: ['profile'],
     queryFn: async () => {
@@ -177,6 +220,24 @@ export default function Dashboard() {
     },
     retry: false,
   });
+
+  // F#10: Update welcome message when profile name loads
+  useEffect(() => {
+    if (profile?.name) {
+      setMessages((prev) => {
+        if (prev.length > 0 && prev[0].id === 'welcome') {
+          return [
+            {
+              ...prev[0],
+              content: `Hello ${profile.name}! I am JobPilot, your intelligent career assistant. I can search LinkedIn & Indeed, find opportunities matching your background, and analyze candidate-to-job compatibility. \n\nTry asking me: *"Find me Java Spring Boot jobs in Bangalore!"* or *"Show me junior remote Python openings."*`
+            },
+            ...prev.slice(1)
+          ];
+        }
+        return prev;
+      });
+    }
+  }, [profile?.name]);
 
   // Fetch Resumes
   const { 
@@ -248,20 +309,68 @@ export default function Dashboard() {
     }
   });
 
-  // AI Resume Parsing Mutation
-  const parseResumeMutation = useMutation({
-    mutationFn: async (resumeId: number) => {
-      const res = await api.post(`/resumes/${resumeId}/parse`);
-      return res.data;
-    },
-    onSuccess: () => {
+  // F#6: AI Resume Parsing Handler per-resume ID
+  const handleParseResume = async (resumeId: number) => {
+    setParsingResumeIds((prev) => new Set(prev).add(resumeId));
+    try {
+      await api.post(`/resumes/${resumeId}/parse`);
       queryClient.invalidateQueries({ queryKey: ['profile'] });
       alert('AI Processing Complete! Your profile has been automatically populated with details parsed from your resume.');
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to parse resume with AI service.');
+    } finally {
+      setParsingResumeIds((prev) => {
+        const next = new Set(prev);
+        next.delete(resumeId);
+        return next;
+      });
+    }
+  };
+
+  // F#2: Job Status Mutation
+  const updateJobStatusMutation = useMutation({
+    mutationFn: async ({ jobId, status }: { jobId: number; status: string }) => {
+      const res = await api.patch(`/jobs/${jobId}/status`, { status });
+      return res.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['job-details', data.id] });
+      setSelectedJob(data);
     },
     onError: (err: any) => {
-      alert(err.response?.data?.message || 'Failed to parse resume with AI service.');
+      alert(err.response?.data?.message || 'Failed to update job status.');
     }
   });
+
+  // F#9: Job Notes Mutation
+  const updateJobNotesMutation = useMutation({
+    mutationFn: async ({ jobId, notes }: { jobId: number; notes: string }) => {
+      const res = await api.patch(`/jobs/${jobId}/notes`, { notes });
+      return res.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['job-details', data.id] });
+    },
+    onError: (err: any) => {
+      alert(err.response?.data?.message || 'Failed to save notes.');
+    }
+  });
+
+  useEffect(() => {
+    if (activeJobDetails) {
+      setJobNotes(activeJobDetails.notes || '');
+    } else if (selectedJob) {
+      setJobNotes(selectedJob.notes || '');
+    }
+  }, [selectedJob?.id, activeJobDetails?.notes, selectedJob?.notes]);
+
+  const handleNotesBlur = () => {
+    if (selectedJob && jobNotes !== (activeJobDetails?.notes ?? selectedJob.notes ?? '')) {
+      updateJobNotesMutation.mutate({ jobId: selectedJob.id, notes: jobNotes });
+    }
+  };
 
   // Delete Resume Mutation
   const deleteResumeMutation = useMutation({
@@ -422,6 +531,9 @@ export default function Dashboard() {
           setSelectedJob(savedData);
           setActiveDetailTab('analysis');
           setActiveTab('saved');
+        },
+        onError: (err: any) => {
+          alert(err.response?.data?.message || 'Failed to save job posting for match analysis.');
         }
       });
     }
@@ -434,14 +546,35 @@ export default function Dashboard() {
       <div className="overflow-y-auto pr-1 flex-grow space-y-6">
         {/* Header Info */}
         <div className="border-b border-slate-100 pb-5 space-y-3">
-          <div className="flex items-center gap-3">
-            <span className="inline-flex items-center rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700 uppercase">
-              {selectedJob.workStyle}
-            </span>
-            {jobDetailsFetching && (
-              <span className="text-[10px] font-bold text-blue-600 animate-pulse bg-blue-50/50 px-2 py-0.5 rounded">
-                AI parsing...
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700 uppercase">
+                {selectedJob.workStyle}
               </span>
+              {jobDetailsFetching && (
+                <span className="text-[10px] font-bold text-blue-600 animate-pulse bg-blue-50/50 px-2 py-0.5 rounded">
+                  AI parsing...
+                </span>
+              )}
+            </div>
+
+            {/* F#2 Application Status Dropdown */}
+            {selectedJob.id && (
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Status:</span>
+                <select
+                  value={activeJobDetails?.status || selectedJob.status || 'SAVED'}
+                  onChange={(e) => updateJobStatusMutation.mutate({ jobId: selectedJob.id, status: e.target.value })}
+                  disabled={updateJobStatusMutation.isPending}
+                  className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-bold bg-white text-slate-700 focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="SAVED">Saved</option>
+                  <option value="APPLIED">Applied</option>
+                  <option value="INTERVIEW">Interview</option>
+                  <option value="OFFER">Offer</option>
+                  <option value="REJECTED">Rejected</option>
+                </select>
+              </div>
             )}
           </div>
           <h3 className="text-xl font-extrabold text-[#0f172a]">{selectedJob.title}</h3>
@@ -536,6 +669,63 @@ export default function Dashboard() {
             </div>
           ) : activeJobDetails?.requirements ? (
             <div className="space-y-5 pt-2">
+              {/* F#1 AI Compatibility Match Score */}
+              <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50/50 to-indigo-50/30 p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-5 w-5 text-blue-600" />
+                    <h4 className="text-xs font-extrabold text-[#0f172a] uppercase tracking-wider">AI Compatibility Match</h4>
+                  </div>
+                  {matchScoreLoading ? (
+                    <span className="text-xs font-bold text-blue-600 animate-pulse">Calculating score...</span>
+                  ) : matchScoreData ? (
+                    <span className={`inline-flex items-center rounded-xl px-3 py-1 text-xs font-extrabold ${
+                      matchScoreData.score >= 75
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                        : matchScoreData.score >= 50
+                          ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                          : 'bg-rose-100 text-rose-800 border border-rose-200'
+                    }`}>
+                      {matchScoreData.score}% Match
+                    </span>
+                  ) : null}
+                </div>
+
+                {matchScoreData && (
+                  <div className="space-y-3 pt-1 text-left">
+                    <p className="text-xs font-semibold text-slate-700 leading-relaxed">{matchScoreData.verdict}</p>
+                    
+                    {matchScoreData.strengths?.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-extrabold text-emerald-700 uppercase tracking-wider">Key Strengths</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {matchScoreData.strengths.map((str: string, i: number) => (
+                            <span key={i} className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700 border border-emerald-100">
+                              <CheckCircle className="h-3 w-3 text-emerald-600" />
+                              {str}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {matchScoreData.gaps?.length > 0 && matchScoreData.gaps[0] !== 'None' && matchScoreData.gaps[0] !== 'None identified' && (
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-extrabold text-amber-700 uppercase tracking-wider">Identified Skill Gaps</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {matchScoreData.gaps.map((gap: string, i: number) => (
+                            <span key={i} className="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-700 border border-amber-100">
+                              <AlertCircle className="h-3 w-3 text-amber-600" />
+                              {gap}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* Required Skills */}
               <div className="space-y-2">
                 <h4 className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Required Technical Skills</h4>
@@ -616,32 +806,68 @@ export default function Dashboard() {
             </div>
           </div>
         )}
+
+        {/* F#9 Application Notes Field */}
+        {selectedJob.id && (
+          <div className="pt-4 border-t border-slate-100 space-y-2 text-left">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                <FileText className="h-3.5 w-3.5 text-slate-400" />
+                Target Notes
+              </label>
+              {updateJobNotesMutation.isPending && (
+                <span className="text-[10px] text-blue-600 font-bold animate-pulse">Saving...</span>
+              )}
+            </div>
+            <textarea
+              value={jobNotes}
+              onChange={(e) => setJobNotes(e.target.value)}
+              onBlur={handleNotesBlur}
+              rows={3}
+              placeholder="Add personal notes, recruiter contacts, interview rounds..."
+              className="w-full rounded-xl border border-slate-200 p-3 text-xs bg-slate-50/50 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 font-sans leading-relaxed"
+            />
+          </div>
+        )}
       </div>
     );
   };
 
-  // Chat submit event
-  const handleChatSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim()) return;
+  // Chat submit event (F#12 pagination & F#3 context)
+  const handleChatSubmit = async (e?: React.FormEvent, isLoadMore = false) => {
+    if (e) e.preventDefault();
+    const query = isLoadMore ? lastQuery : chatInput;
+    if (!query.trim()) return;
 
-    const userMsgText = chatInput;
-    setChatInput('');
+    const pageToSend = isLoadMore ? currentPage + 1 : 0;
+    if (!isLoadMore) {
+      setLastQuery(query);
+      setCurrentPage(0);
+      setChatInput('');
+      const userMessage: Message = {
+        id: Math.random().toString(),
+        sender: 'USER',
+        content: query,
+        timestamp: new Date()
+      };
+      setMessages((prev) => [...prev, userMessage]);
+    } else {
+      setCurrentPage(pageToSend);
+    }
 
-    // Add user message locally
-    const userMessage: Message = {
-      id: Math.random().toString(),
-      sender: 'USER',
-      content: userMsgText,
-      timestamp: new Date()
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
     setChatLoading(true);
 
     try {
-      // Query Spring Boot backend (which attaches profile context and routes to Python FastAPI AI service)
-      const res = await api.post('/chat', { message: userMsgText });
+      // Query Spring Boot backend (which attaches profile context, page, and lastIntent)
+      const res = await api.post('/chat', {
+        message: query,
+        page: pageToSend,
+        lastIntent: lastIntent
+      });
+
+      if (res.data.lastIntent) {
+        setLastIntent(res.data.lastIntent);
+      }
       
       const aiMessage: Message = {
         id: Math.random().toString(),
@@ -649,6 +875,7 @@ export default function Dashboard() {
         content: res.data.response,
         jobs: res.data.jobs || [],
         searchLinks: res.data.searchLinks || [],
+        hasMore: res.data.hasMore,
         timestamp: new Date()
       };
 
@@ -882,6 +1109,20 @@ export default function Dashboard() {
                                 </div>
                               );
                             })}
+                          </div>
+                        )}
+
+                        {/* F#12: Load More Button */}
+                        {msg.hasMore && (
+                          <div className="pt-2 text-left">
+                            <button
+                              onClick={() => handleChatSubmit(undefined, true)}
+                              disabled={chatLoading}
+                              className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100 transition-colors disabled:opacity-50 shadow-sm"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                              Load More Jobs
+                            </button>
                           </div>
                         )}
                       </div>
@@ -1427,12 +1668,12 @@ export default function Dashboard() {
                               </div>
                               <div className="flex items-center gap-2">
                                 <button
-                                  onClick={() => parseResumeMutation.mutate(resume.id)}
-                                  disabled={parseResumeMutation.isPending}
+                                  onClick={() => handleParseResume(resume.id)}
+                                  disabled={parsingResumeIds.has(resume.id)}
                                   className="rounded-lg bg-blue-50 p-2 text-blue-600 hover:bg-blue-100 hover:text-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center"
                                   title="Parse Resume with AI"
                                 >
-                                  {parseResumeMutation.isPending ? (
+                                  {parsingResumeIds.has(resume.id) ? (
                                     <svg className="h-[18px] w-[18px] animate-spin text-blue-600" fill="none" viewBox="0 0 24 24">
                                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
@@ -1550,10 +1791,21 @@ export default function Dashboard() {
                                   <Building className="h-3.5 w-3.5 text-slate-400" />
                                   <span className="truncate">{job.company}</span>
                                 </p>
-                                <div className="flex items-center gap-2 mt-2">
+                                <div className="flex flex-wrap items-center gap-2 mt-2">
                                   <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700 uppercase">
                                     {job.workStyle}
                                   </span>
+                                  {job.status && (
+                                    <span className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[9px] font-extrabold uppercase ${
+                                      job.status === 'APPLIED' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                                      job.status === 'INTERVIEW' ? 'bg-purple-50 text-purple-700 border border-purple-200' :
+                                      job.status === 'OFFER' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                                      job.status === 'REJECTED' ? 'bg-rose-50 text-rose-700 border border-rose-200' :
+                                      'bg-slate-100 text-slate-600 border border-slate-200'
+                                    }`}>
+                                      {job.status}
+                                    </span>
+                                  )}
                                   <span className="text-[10px] font-semibold text-slate-400 truncate flex items-center gap-1">
                                     <MapPin className="h-3 w-3" />
                                     {job.location}

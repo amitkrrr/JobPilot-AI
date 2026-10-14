@@ -67,12 +67,12 @@ public class AdzunaConnector implements JobSource {
 
             log.info("Adzuna: searching query='{}' location='{}'", query, location);
 
-            AdzunaResponse response = fetchAdzuna(query, location);
+            AdzunaResponse response = fetchAdzuna(query, location, request.getPage());
 
             // If specific city returned nothing, retry with no location filter (India-wide)
             if ((response == null || response.results == null || response.results.isEmpty()) && !location.isBlank()) {
                 log.debug("Adzuna: no results for location '{}', retrying India-wide...", location);
-                response = fetchAdzuna(query, "");
+                response = fetchAdzuna(query, "", request.getPage());
             }
 
             if (response == null || response.results == null || response.results.isEmpty()) {
@@ -105,10 +105,11 @@ public class AdzunaConnector implements JobSource {
         }
     }
 
-    private AdzunaResponse fetchAdzuna(String query, String location) {
+    private AdzunaResponse fetchAdzuna(String query, String location, int page) {
+        int pageNumber = page + 1;
         return restClient.get()
                 .uri(uriBuilder -> uriBuilder
-                        .path("/{country}/search/1")
+                        .path("/{country}/search/" + pageNumber)
                         .queryParam("app_id", appId)
                         .queryParam("app_key", appKey)
                         .queryParam("what", query)

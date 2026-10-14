@@ -11,7 +11,10 @@ import org.slf4j.LoggerFactory;
 
 import com.jobpilot.dto.job.JobRequest;
 import com.jobpilot.dto.job.JobResponse;
+import com.jobpilot.dto.job.MatchScoreResponse;
 import com.jobpilot.dto.job.ParsedJobRequirementResponse;
+import com.jobpilot.user.CandidateProfile;
+import com.jobpilot.user.CandidateProfileRepository;
 import com.jobpilot.user.User;
 
 @Service
@@ -22,17 +25,24 @@ public class JobService {
     private final JobRepository jobRepository;
     private final JobRequirementRepository jobRequirementRepository;
     private final AIJobClient aiJobClient;
+    private final CandidateProfileRepository candidateProfileRepository;
 
     public JobService(JobRepository jobRepository,
                       JobRequirementRepository jobRequirementRepository,
-                      AIJobClient aiJobClient) {
+                      AIJobClient aiJobClient,
+                      CandidateProfileRepository candidateProfileRepository) {
         this.jobRepository = jobRepository;
         this.jobRequirementRepository = jobRequirementRepository;
         this.aiJobClient = aiJobClient;
+        this.candidateProfileRepository = candidateProfileRepository;
     }
 
     @Transactional
     public JobResponse createJob(JobRequest request, User user) {
+        if (jobRepository.existsByUserAndTitleIgnoreCaseAndCompanyIgnoreCase(user, request.getTitle(), request.getCompany())) {
+            throw new IllegalArgumentException("Job already saved: " + request.getTitle() + " at " + request.getCompany());
+        }
+
         Job job = new Job(
             user,
             request.getTitle(),
@@ -88,6 +98,34 @@ public class JobService {
     public Job getJobEntityForUser(Long id, User user) {
         return jobRepository.findByIdAndUser(id, user)
                 .orElseThrow(() -> new IllegalArgumentException("Job not found or unauthorized"));
+    }
+
+    @Transactional
+    public JobResponse updateJobStatus(Long id, JobStatus status, User user) {
+        Job job = jobRepository.findByIdAndUser(id, user)
+                .orElseThrow(() -> new IllegalArgumentException("Job not found or unauthorized"));
+        job.setStatus(status);
+        Job savedJob = jobRepository.save(job);
+        return new JobResponse(savedJob);
+    }
+
+    @Transactional
+    public JobResponse updateJobNotes(Long id, String notes, User user) {
+        Job job = jobRepository.findByIdAndUser(id, user)
+                .orElseThrow(() -> new IllegalArgumentException("Job not found or unauthorized"));
+        job.setNotes(notes);
+        Job savedJob = jobRepository.save(job);
+        return new JobResponse(savedJob);
+    }
+
+    @Transactional
+    public MatchScoreResponse getMatchScore(Long id, User user) {
+        // Transparently parse requirements if missing
+        getJobResponseForUser(id, user);
+        Job job = getJobEntityForUser(id, user);
+        CandidateProfile profile = candidateProfileRepository.findByUserId(user.getId())
+                .orElse(null);
+        return aiJobClient.scoreMatch(job, profile);
     }
 
     @Transactional

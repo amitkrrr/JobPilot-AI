@@ -3,6 +3,7 @@ package com.jobpilot.dto.job;
 import java.time.LocalDateTime;
 
 import com.jobpilot.job.Job;
+import com.jobpilot.job.JobStatus;
 
 public class JobResponse {
 
@@ -15,6 +16,8 @@ public class JobResponse {
     private String sourceUrl;
     private String salaryInfo;
     private String experienceRequired;
+    private JobStatus status;
+    private String notes;
     private LocalDateTime createdAt;
     private JobRequirementResponse requirements;
 
@@ -31,6 +34,8 @@ public class JobResponse {
         this.sourceUrl = job.getSourceUrl();
         this.salaryInfo = job.getSalaryInfo();
         this.experienceRequired = job.getExperienceRequired();
+        this.status = job.getStatus();
+        this.notes = job.getNotes();
         this.createdAt = job.getCreatedAt();
         if (job.getRequirements() != null) {
             this.requirements = new JobRequirementResponse(job.getRequirements());
@@ -109,6 +114,22 @@ public class JobResponse {
 
     public void setExperienceRequired(String experienceRequired) {
         this.experienceRequired = experienceRequired;
+    }
+
+    public JobStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(JobStatus status) {
+        this.status = status;
+    }
+
+    public String getNotes() {
+        return notes;
+    }
+
+    public void setNotes(String notes) {
+        this.notes = notes;
     }
 
     public LocalDateTime getCreatedAt() {

@@ -3,7 +3,8 @@ import json
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from schemas import (ParseRequest, ResumeProfile,
-                     ParseJDRequest, ParsedJobRequirement, IntentRequest, SearchIntent)
+                     ParseJDRequest, ParsedJobRequirement, IntentRequest, SearchIntent,
+                     MatchRequest, MatchResult)
 from parser import parse_resume_file, parse_job_description, _gemini_post
 
 app = FastAPI(
@@ -46,9 +47,14 @@ async def classify_intent(request: IntentRequest):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={GEMINI_API_KEY}"
     headers = {"Content-Type": "application/json"}
 
+    context_str = ""
+    if request.last_intent:
+        context_str = f"Previous search context: role={request.last_intent.role} skills={request.last_intent.skills} location={request.last_intent.location}. The user is refining this search.\n\n"
+
     prompt = (
         "You are a JSON intent classifier. Output ONLY a JSON object — no prose.\n\n"
         "TASK: Classify whether the user wants to search for jobs, or is asking a general question.\n\n"
+        f"{context_str}"
         "OUTPUT SCHEMA:\n"
         "- intent: 'JOB_SEARCH' or 'GENERAL_CHAT'\n"
         "- role: job title or role (e.g. 'Backend Developer', 'DevOps Engineer') — null if not a search\n"
@@ -160,6 +166,89 @@ async def parse_jd(request: ParseJDRequest):
     except Exception as e:
         print(f"Error parsing job description: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/ai/match", response_model=MatchResult)
+async def score_match(request: MatchRequest):
+    """
+    Evaluates candidate fit against job requirements and returns match score, strengths, gaps, and verdict.
+    """
+    if not GEMINI_API_KEY:
+        req_set = {s.lower() for s in request.required_skills} if request.required_skills else set()
+        cand_set = {s.lower() for s in request.candidate_skills} if request.candidate_skills else set()
+        matched = req_set.intersection(cand_set)
+        missing = req_set.difference(cand_set)
+
+        score = 50
+        if req_set:
+            score = int((len(matched) / len(req_set)) * 100)
+
+        strengths = [s.title() for s in matched] if matched else ["Relevant background"]
+        gaps = [s.title() for s in missing] if missing else ["None identified"]
+        verdict = f"Moderate fit with {score}% skill alignment." if score >= 50 else f"Low fit with {score}% skill alignment."
+        if score >= 75:
+            verdict = f"Strong candidate match with {score}% skill overlap."
+
+        return MatchResult(score=score, strengths=strengths, gaps=gaps, verdict=verdict)
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={GEMINI_API_KEY}"
+    headers = {"Content-Type": "application/json"}
+
+    prompt = (
+        "You are an expert technical recruiter analyzing a candidate's fit for a job.\n"
+        "Analyze the job requirements and candidate profile to calculate a match score from 0 to 100, "
+        "identify strengths, missing skills/gaps, and provide an overall concise verdict.\n\n"
+        f"JOB DESCRIPTION:\n{request.job_description}\n\n"
+        f"REQUIRED SKILLS: {request.required_skills}\n"
+        f"CANDIDATE SKILLS: {request.candidate_skills}\n"
+        f"CANDIDATE YEARS OF EXPERIENCE: {request.years_of_experience}\n\n"
+        "Return ONLY a JSON object with:\n"
+        "- score: integer from 0 to 100\n"
+        "- strengths: list of strings (matching skills/experience)\n"
+        "- gaps: list of strings (missing skills or experience gaps)\n"
+        "- verdict: concise 1-2 sentence assessment of candidate fit\n"
+    )
+
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "responseSchema": {
+                "type": "OBJECT",
+                "properties": {
+                    "score": {"type": "INTEGER"},
+                    "strengths": {"type": "ARRAY", "items": {"type": "STRING"}},
+                    "gaps": {"type": "ARRAY", "items": {"type": "STRING"}},
+                    "verdict": {"type": "STRING"}
+                },
+                "required": ["score", "strengths", "gaps", "verdict"]
+            }
+        }
+    }
+
+    response = _gemini_post(url, headers, payload)
+    if response is not None and response.status_code == 200:
+        try:
+            candidates = response.json().get("candidates", [])
+            if candidates:
+                parts = candidates[0].get("content", {}).get("parts", [])
+                if parts:
+                    data = json.loads(parts[0].get("text", ""))
+                    return MatchResult(**data)
+        except Exception as e:
+            print(f"Failed to parse match response: {e}")
+
+    req_set = {s.lower() for s in request.required_skills} if request.required_skills else set()
+    cand_set = {s.lower() for s in request.candidate_skills} if request.candidate_skills else set()
+    matched = req_set.intersection(cand_set)
+    missing = req_set.difference(cand_set)
+    score = int((len(matched) / len(req_set)) * 100) if req_set else 60
+    return MatchResult(
+        score=score,
+        strengths=[s.title() for s in matched] if matched else ["General experience"],
+        gaps=[s.title() for s in missing] if missing else ["None"],
+        verdict=f"Candidate has {score}% skill alignment with the job requirements."
+    )
 
 
 if __name__ == "__main__":
