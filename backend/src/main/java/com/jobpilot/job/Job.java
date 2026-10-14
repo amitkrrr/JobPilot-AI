@@ -58,7 +58,7 @@ public class Job {
     private String experienceRequired;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "varchar(255) default 'SAVED'")
     private JobStatus status = JobStatus.SAVED;
 
     @Column(columnDefinition = "text")
