@@ -1,16 +1,14 @@
 import os
 import json
-import requests
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from schemas import (ParseRequest, ResumeProfile, ChatRequest, AIChatResponse, JobCardResponse,
+from schemas import (ParseRequest, ResumeProfile,
                      ParseJDRequest, ParsedJobRequirement, IntentRequest, SearchIntent)
 from parser import parse_resume_file, parse_job_description, _gemini_post
-from connectors import search_jobs
 
 app = FastAPI(
     title="JobPilot AI — Python AI Service",
-    description="Microservice handling natural language processing, resume parsing, and conversational job discovery.",
+    description="Microservice handling natural language processing, resume parsing, and intent classification.",
     version="0.1.0"
 )
 
@@ -163,137 +161,7 @@ async def parse_jd(request: ParseJDRequest):
         print(f"Error parsing job description: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/api/ai/chat", response_model=AIChatResponse)
-async def process_chat(request: ChatRequest):
-    """
-    Exposes an intelligent conversational endpoint to handle job discovery search queries.
-    Uses Gemini to identify search intent, query search connectors (LinkedIn/Indeed),
-    and return interactive job cards.
-    """
-    message = request.message
-    profile = request.profile
-    print(f"Processing conversational chat query: '{message}'")
-
-    if not GEMINI_API_KEY:
-        # 1. LOCAL FALLBACK OFFLINE ROUTING (Deterministic Keyword Matching)
-        print("GEMINI_API_KEY not configured. Running offline deterministic routing.")
-        msg_lower = message.lower()
-        is_search = any(k in msg_lower for k in ["find", "search", "jobs", "openings", "positions", "hiring", "opportunities"])
-        
-        if is_search:
-            # Simple keyword matching fallbacks
-            kw = "Java" if "java" in msg_lower else ("Python" if "python" in msg_lower else ("Kubernetes" if "kubernetes" in msg_lower or "devops" in msg_lower else None))
-            loc = "Bangalore" if "bangalore" in msg_lower else ("Remote" if "remote" in msg_lower else None)
-            exp = "0-2 years" if "0-2" in msg_lower or "junior" in msg_lower or "entry" in msg_lower else None
-            
-            jobs = search_jobs(keywords=kw, location=loc, experience_range=exp)
-            reply = f"I've searched our connectors (LinkedIn/Indeed) and found {len(jobs)} active job postings matching your query."
-            return AIChatResponse(response=reply, jobs=jobs)
-        else:
-            reply = "Hello! I am JobPilot, your conversational assistant. I can help you search, discover, and match jobs. To get started, try asking: 'Find me Java Spring Boot jobs in Bangalore!'"
-            return AIChatResponse(response=reply, jobs=[])
-
-    # 2. ONLINE LLM-ROUTED INTENT ANALYSIS (Gemini 3.8 Flash)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={GEMINI_API_KEY}"
-    headers = {"Content-Type": "application/json"}
-    
-    # Prompt instructing Gemini to classify intent and extract search params strictly
-    prompt = (
-        "You are a JSON classification engine. Your ONLY job is to classify the user message and output a JSON object. "
-        "DO NOT search the internet. DO NOT say whether jobs exist or not. DO NOT answer conversationally.\n\n"
-        "RULE: If the message contains words like 'find', 'search', 'show', 'get', 'jobs', 'openings', 'roles', 'positions', "
-        "'hiring', 'opportunities', or names any technology/role — set is_job_search=true and extract keywords/location/experience.\n\n"
-        "OUTPUT SCHEMA (always return valid JSON):\n"
-        "- is_job_search: boolean (true if user wants job listings, false for general questions)\n"
-        "- keywords: string — tech stack or role name (e.g. 'Java Spring Boot', 'Python', 'DevOps'). Empty string if not a search.\n"
-        "- location: string — city or 'Remote' (e.g. 'Bangalore'). Empty string if not mentioned.\n"
-        "- experience: string — seniority if mentioned (e.g. 'junior', '2-4 years'). Empty string if not mentioned.\n"
-        "- reply: string — ONLY populate this if is_job_search=false. Write a helpful career/coding answer.\n\n"
-        "EXAMPLES:\n"
-        "Input: 'Find me Java Spring Boot jobs in Bangalore' → {\"is_job_search\":true,\"keywords\":\"Java Spring Boot\",\"location\":\"Bangalore\",\"experience\":\"\",\"reply\":\"\"}\n"
-        "Input: 'Show me remote Python jobs' → {\"is_job_search\":true,\"keywords\":\"Python\",\"location\":\"Remote\",\"experience\":\"\",\"reply\":\"\"}\n"
-        "Input: 'What is Spring Boot?' → {\"is_job_search\":false,\"keywords\":\"\",\"location\":\"\",\"experience\":\"\",\"reply\":\"Spring Boot is...\"}\n\n"
-        f"USER MESSAGE: '{message}'\n"
-        f"USER PROFILE: {profile.model_dump_json() if profile else 'None'}"
-    )
-
-    payload = {
-        "contents": [{
-            "parts": [{"text": prompt}]
-        }],
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "responseSchema": {
-                "type": "OBJECT",
-                "properties": {
-                    "is_job_search": {"type": "BOOLEAN"},
-                    "keywords": {"type": "STRING"},
-                    "location": {"type": "STRING"},
-                    "experience": {"type": "STRING"},
-                    "reply": {"type": "STRING"}
-                },
-                "required": ["is_job_search", "keywords", "location", "experience", "reply"]
-            }
-        }
-    }
-
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=15)
-        if response.status_code == 200:
-            res_json = response.json()
-            candidates = res_json.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                if parts:
-                    extracted_text = parts[0].get("text", "")
-                    classification = json.loads(extracted_text)
-                    
-                    if classification.get("is_job_search"):
-                        # Execute search using our LinkedIn / Indeed connectors
-                        kw = classification.get("keywords")
-                        loc = classification.get("location")
-                        exp = classification.get("experience")
-                        print(f"Gemini matched Search Intent! Keywords: {kw}, Location: {loc}, Exp: {exp}")
-                        
-                        jobs = search_jobs(keywords=kw, location=loc, experience_range=exp)
-                        
-                        # Generate a personalized conversational greeting summarizing the results
-                        greeting_prompt = (
-                            f"Summarize what you found for the user. User asked: '{message}'. "
-                            f"We searched Indeed & LinkedIn and found {len(jobs)} jobs matching parameters "
-                            f"(Keywords: '{kw}', Location: '{loc}', Experience: '{exp}'). "
-                            "Write a single sentence greeting in a friendly, professional tone (e.g. 'I've discovered "
-                            "4 entry-level positions in Bangalore...'). Keep it short and encouraging."
-                        )
-                        greeting_payload = {
-                            "contents": [{"parts": [{"text": greeting_prompt}]}]
-                        }
-                        greet_resp = requests.post(url, headers=headers, json=greeting_payload, timeout=10)
-                        reply = "Here are the jobs I discovered for you matching your criteria:"
-                        if greet_resp.status_code == 200:
-                            g_json = greet_resp.json()
-                            g_cand = g_json.get("candidates", [])
-                            if g_cand:
-                                reply = g_cand[0].get("content", {}).get("parts", [])[0].get("text", reply).strip()
-                        
-                        return AIChatResponse(response=reply, jobs=jobs)
-                    else:
-                        # Return normal conversational reply from Gemini
-                        reply = classification.get("reply", "Hello! How can I assist you with your career search today?")
-                        return AIChatResponse(response=reply, jobs=[])
-                        
-        print(f"Gemini API returned status code {response.status_code}: {response.text}")
-    except Exception as e:
-        print(f"Failed to query Gemini Chat API: {e}")
-        
-    # Safe Fallback
-    return AIChatResponse(
-        response="I ran into a small connection issue with my AI brain, but I'm still here! Try asking me again in a moment.",
-        jobs=[]
-    )
 
 if __name__ == "__main__":
-    import os
     port = int(os.getenv("PORT", 8000))
-    # Run server locally on port 8000
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)

@@ -3,6 +3,8 @@ package com.jobpilot.chat;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -15,6 +17,8 @@ import com.jobpilot.dto.job.JobResponse;
 import com.jobpilot.dto.profile.ProfileResponse;
 import com.jobpilot.search.ChatSearchResult;
 import com.jobpilot.search.JobSearchService;
+import com.jobpilot.search.DeepLinkService;
+import com.jobpilot.search.JobSearchRequest;
 import com.jobpilot.search.NormalizedJob;
 import com.jobpilot.user.CandidateProfileService;
 
@@ -30,17 +34,22 @@ import com.jobpilot.user.CandidateProfileService;
 @RequestMapping("/api/chat")
 public class ChatController {
 
+    private static final Logger log = LoggerFactory.getLogger(ChatController.class);
+
     private final AIChatClient aiChatClient;
     private final CandidateProfileService profileService;
     private final JobSearchService jobSearchService;
+    private final DeepLinkService deepLinkService;
 
     public ChatController(
             AIChatClient aiChatClient,
             CandidateProfileService profileService,
-            JobSearchService jobSearchService) {
+            JobSearchService jobSearchService,
+            DeepLinkService deepLinkService) {
         this.aiChatClient = aiChatClient;
         this.profileService = profileService;
         this.jobSearchService = jobSearchService;
+        this.deepLinkService = deepLinkService;
     }
 
     @PostMapping
@@ -53,7 +62,7 @@ public class ChatController {
         try {
             profile = profileService.getProfile(authentication.getName());
         } catch (Exception e) {
-            System.out.println("No profile context for: " + authentication.getName());
+            log.debug("No profile context for: {}", authentication.getName());
         }
 
         // 2. Ask Python/Gemini to classify intent — returns structured data, never jobs
@@ -76,18 +85,20 @@ public class ChatController {
         }
 
         // 3c. Job search — Spring Boot orchestrates connectors
-        System.out.println("Job search intent: role=" + intent.getRole()
-                + " skills=" + intent.getSkills()
-                + " location=" + intent.getLocation());
+        log.info("Job search intent: role={} skills={} location={}",
+                intent.getRole(), intent.getSkills(), intent.getLocation());
 
-        ChatSearchResult result = jobSearchService.search(intent.toSearchRequest());
+        JobSearchRequest searchRequest = intent.toSearchRequest();
+        ChatSearchResult result = jobSearchService.search(searchRequest);
 
         // Convert NormalizedJob → lightweight chat job cards
         List<JobResponse> jobCards = result.getJobs().stream()
                 .map(this::toJobCard)
                 .collect(Collectors.toList());
 
-        return new ChatResponse(result.getSummary(), jobCards);
+        ChatResponse response = new ChatResponse(result.getSummary(), jobCards);
+        response.setSearchLinks(deepLinkService.buildLinks(searchRequest));
+        return response;
     }
 
     /** Maps a NormalizedJob to a JobResponse usable by the frontend chat card. */
@@ -103,7 +114,23 @@ public class ChatController {
                 : "");
         card.setSourceUrl(job.getJobUrl());
         card.setSalaryInfo(job.getSalaryInfo());
-        card.setWorkStyle(job.isRemoteByLocation() ? "REMOTE" : "ONSITE");
+        card.setWorkStyle(inferWorkStyle(job));
         return card;
+    }
+
+    /**
+     * Infers REMOTE / HYBRID / ONSITE from the location string.
+     * Adzuna and Jooble both surface hybrid listings explicitly.
+     */
+    private String inferWorkStyle(NormalizedJob job) {
+        String loc = job.getLocation() != null ? job.getLocation().toLowerCase() : "";
+        String desc = job.getDescription() != null ? job.getDescription().toLowerCase() : "";
+        if (loc.contains("remote") || desc.contains("fully remote") || desc.contains("work from home")) {
+            return "REMOTE";
+        }
+        if (loc.contains("hybrid") || desc.contains("hybrid")) {
+            return "HYBRID";
+        }
+        return "ONSITE";
     }
 }

@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
@@ -26,6 +28,8 @@ import com.jobpilot.search.SearchStatus;
  */
 @Component
 public class AdzunaConnector implements JobSource {
+
+    private static final Logger log = LoggerFactory.getLogger(AdzunaConnector.class);
 
     private static final String BASE_URL = "https://api.adzuna.com/v1/api/jobs";
     private static final String COUNTRY = "in"; // India
@@ -61,18 +65,18 @@ public class AdzunaConnector implements JobSource {
             // Strip country suffix (e.g. "Allahabad, India" → "Allahabad") — Adzuna where param is city only
             String location = cleanLocation(request.getLocation());
 
-            System.out.println("Adzuna: searching query='" + query + "' location='" + location + "'");
+            log.info("Adzuna: searching query='{}' location='{}'", query, location);
 
             AdzunaResponse response = fetchAdzuna(query, location);
 
             // If specific city returned nothing, retry with no location filter (India-wide)
             if ((response == null || response.results == null || response.results.isEmpty()) && !location.isBlank()) {
-                System.out.println("Adzuna: no results for location '" + location + "', retrying India-wide...");
+                log.debug("Adzuna: no results for location '{}', retrying India-wide...", location);
                 response = fetchAdzuna(query, "");
             }
 
             if (response == null || response.results == null || response.results.isEmpty()) {
-                System.out.println("Adzuna: no results found for query='" + query + "'");
+                log.debug("Adzuna: no results found for query='{}'", query);
                 return new JobSourceResult(getSourceName(), SearchStatus.NO_RESULTS,
                         java.util.Collections.emptyList());
             }
@@ -82,7 +86,7 @@ public class AdzunaConnector implements JobSource {
                 jobs.add(normalize(raw));
             }
 
-            System.out.println("Adzuna: found " + jobs.size() + " jobs");
+            log.info("Adzuna: found {} jobs", jobs.size());
             return new JobSourceResult(getSourceName(), SearchStatus.SUCCESS, jobs);
 
         } catch (HttpClientErrorException.Unauthorized e) {
@@ -95,7 +99,7 @@ public class AdzunaConnector implements JobSource {
             return new JobSourceResult(getSourceName(), SearchStatus.UNAVAILABLE,
                     "Adzuna API unreachable: " + e.getMessage());
         } catch (Exception e) {
-            System.err.println("Adzuna connector error: " + e.getMessage());
+            log.error("Adzuna connector error: {}", e.getMessage());
             return new JobSourceResult(getSourceName(), SearchStatus.ERROR,
                     "Adzuna search failed: " + e.getMessage());
         }

@@ -6,6 +6,9 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.jobpilot.dto.job.JobRequest;
 import com.jobpilot.dto.job.JobResponse;
 import com.jobpilot.dto.job.ParsedJobRequirementResponse;
@@ -13,6 +16,8 @@ import com.jobpilot.user.User;
 
 @Service
 public class JobService {
+
+    private static final Logger log = LoggerFactory.getLogger(JobService.class);
 
     private final JobRepository jobRepository;
     private final JobRequirementRepository jobRequirementRepository;
@@ -72,8 +77,7 @@ public class JobService {
                 JobRequirement savedRequirement = jobRequirementRepository.save(requirement);
                 job.setRequirements(savedRequirement);
             } catch (Exception e) {
-                System.err.println("Failed to parse and save job requirements: " + e.getMessage());
-                // Handle fallback gracefully to keep core application resilient
+                log.warn("Failed to parse job requirements for job {}: {}", id, e.getMessage());
             }
         }
         

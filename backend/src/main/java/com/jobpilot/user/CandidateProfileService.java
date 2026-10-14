@@ -1,6 +1,9 @@
 package com.jobpilot.user;
 
 import java.util.UUID;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,6 +17,8 @@ import com.jobpilot.storage.StorageService;
 
 @Service
 public class CandidateProfileService {
+
+    private static final Logger log = LoggerFactory.getLogger(CandidateProfileService.class);
 
     private final CandidateProfileRepository profileRepository;
     private final UserRepository userRepository;
@@ -128,7 +133,7 @@ public class CandidateProfileService {
             // Save updated profile with AI values
             profile = profileRepository.save(profile);
         } catch (Exception e) {
-            System.err.println("Warning: AI parsing failed during profile import, keeping shell profile: " + e.getMessage());
+            log.warn("AI parsing failed during profile import, keeping shell profile: {}", e.getMessage());
             profile.setHeadline("Imported Candidate Profile");
             profile = profileRepository.save(profile);
         }

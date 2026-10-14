@@ -15,3 +15,5 @@ infrastructure/minio.license
 # Build artifacts
 frontend/dist/
 .bob/
+# Backend local secrets (API keys)
+backend/src/main/resources/application-local.properties

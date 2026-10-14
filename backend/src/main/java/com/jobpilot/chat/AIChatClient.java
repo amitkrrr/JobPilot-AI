@@ -4,6 +4,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -22,6 +24,8 @@ import com.jobpilot.search.JobSearchRequest;
  */
 @Service
 public class AIChatClient {
+
+    private static final Logger log = LoggerFactory.getLogger(AIChatClient.class);
 
     private final RestClient restClient;
 
@@ -46,7 +50,7 @@ public class AIChatClient {
                     .retrieve()
                     .body(SearchIntent.class);
         } catch (Exception e) {
-            System.err.println("AI intent service unreachable: " + e.getMessage());
+            log.error("AI intent service unreachable: {}", e.getMessage());
             return null;
         }
     }

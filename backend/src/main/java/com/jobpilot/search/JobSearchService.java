@@ -5,8 +5,13 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
@@ -17,20 +22,28 @@ import org.springframework.stereotype.Service;
 @Service
 public class JobSearchService {
 
+    private static final Logger log = LoggerFactory.getLogger(JobSearchService.class);
+
     private final List<JobSource> sources;
+    private final ExecutorService executor;
 
     // Spring injects all beans that implement JobSource automatically
     public JobSearchService(List<JobSource> sources) {
         this.sources = sources;
+        this.executor = Executors.newFixedThreadPool(sources.size() > 0 ? sources.size() : 2);
     }
 
     public ChatSearchResult search(JobSearchRequest request) {
-        List<JobSourceResult> results = new ArrayList<>();
+        log.info("Searching {} connector(s) for role='{}' location='{}'",
+                sources.size(), request.getRole(), request.getLocation());
+        // Query all connectors in parallel
+        List<CompletableFuture<JobSourceResult>> futures = sources.stream()
+                .map(source -> CompletableFuture.supplyAsync(() -> source.search(request), executor))
+                .collect(Collectors.toList());
 
-        // Query all connectors (sequential for now; upgrade to parallel with CompletableFuture later)
-        for (JobSource source : sources) {
-            results.add(source.search(request));
-        }
+        List<JobSourceResult> results = futures.stream()
+                .map(CompletableFuture::join)
+                .collect(Collectors.toList());
 
         // Collect all jobs from successful sources
         List<NormalizedJob> allJobs = results.stream()
@@ -112,8 +125,15 @@ public class JobSearchService {
     private String buildSummary(List<JobSourceResult> results, int totalUnique) {
         if (totalUnique == 0) {
             boolean allUnavailable = results.stream()
-                    .allMatch(r -> r.getStatus() == SearchStatus.UNAVAILABLE);
+                    .allMatch(r -> r.getStatus() == SearchStatus.UNAVAILABLE
+                            || r.getStatus() == SearchStatus.UNAUTHORIZED);
             if (allUnavailable) {
+                // Check if any are specifically unauthorized (bad key vs missing key)
+                boolean anyUnauthorized = results.stream()
+                        .anyMatch(r -> r.getStatus() == SearchStatus.UNAUTHORIZED);
+                if (anyUnauthorized) {
+                    return "One or more job connector API keys are invalid. Please check your Adzuna and Jooble credentials.";
+                }
                 return "Job connectors are not yet configured. Add your Adzuna and Jooble API keys to start seeing real jobs.";
             }
             return "No jobs found matching your criteria across all sources. Try broader keywords or a different location.";
@@ -136,11 +156,15 @@ public class JobSearchService {
 
         // Mention any non-successful sources transparently
         for (JobSourceResult r : results) {
-            if (r.getStatus() == SearchStatus.UNAVAILABLE || r.getStatus() == SearchStatus.RATE_LIMITED) {
+            if (r.getStatus() == SearchStatus.UNAVAILABLE) {
                 sb.append(". ").append(r.getSource()).append(" is temporarily unavailable");
+            } else if (r.getStatus() == SearchStatus.UNAUTHORIZED) {
+                sb.append(". ").append(r.getSource()).append(" credentials are invalid — please check your API key");
+            } else if (r.getStatus() == SearchStatus.RATE_LIMITED) {
+                sb.append(". ").append(r.getSource()).append(" rate limit reached");
             } else if (r.getStatus() == SearchStatus.NO_RESULTS) {
                 sb.append(". ").append(r.getSource()).append(" returned no results for this search");
-            } else if (r.getStatus() == SearchStatus.ERROR || r.getStatus() == SearchStatus.UNAUTHORIZED) {
+            } else if (r.getStatus() == SearchStatus.ERROR) {
                 sb.append(". ").append(r.getSource()).append(" encountered an error");
             }
         }

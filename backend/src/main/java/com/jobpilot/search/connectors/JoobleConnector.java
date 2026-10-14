@@ -3,6 +3,8 @@ package com.jobpilot.search.connectors;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
@@ -24,6 +26,8 @@ import com.jobpilot.search.SearchStatus;
  */
 @Component
 public class JoobleConnector implements JobSource {
+
+    private static final Logger log = LoggerFactory.getLogger(JoobleConnector.class);
 
     private static final String BASE_URL = "https://jooble.org/api/";
 
@@ -72,7 +76,7 @@ public class JoobleConnector implements JobSource {
                 jobs.add(normalize(raw));
             }
 
-            System.out.println("Jooble: found " + jobs.size() + " jobs for keywords: " + keywords);
+            log.info("Jooble: found {} jobs for keywords: {}", jobs.size(), keywords);
             return new JobSourceResult(getSourceName(), SearchStatus.SUCCESS, jobs);
 
         } catch (HttpClientErrorException.Unauthorized e) {
@@ -85,7 +89,7 @@ public class JoobleConnector implements JobSource {
             return new JobSourceResult(getSourceName(), SearchStatus.UNAVAILABLE,
                     "Jooble API unreachable: " + e.getMessage());
         } catch (Exception e) {
-            System.err.println("Jooble connector error: " + e.getMessage());
+            log.error("Jooble connector error: {}", e.getMessage());
             return new JobSourceResult(getSourceName(), SearchStatus.ERROR,
                     "Jooble search failed: " + e.getMessage());
         }

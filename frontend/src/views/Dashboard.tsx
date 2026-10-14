@@ -71,11 +71,17 @@ interface JobData {
   createdAt: string;
 }
 
+interface SearchLink {
+  platform: string;
+  url: string;
+}
+
 interface Message {
   id: string;
   sender: 'USER' | 'AI';
   content: string;
   jobs?: JobData[];
+  searchLinks?: SearchLink[];
   timestamp: Date;
 }
 
@@ -440,7 +446,7 @@ export default function Dashboard() {
           </div>
           <h3 className="text-xl font-extrabold text-[#0f172a]">{selectedJob.title}</h3>
           <p className="text-sm font-bold text-slate-600 flex items-center gap-1.5">
-            <Building className="h-4.5 w-4.5 text-slate-400" />
+            <Building className="h-[18px] w-[18px] text-slate-400" />
             {selectedJob.company}
           </p>
         </div>
@@ -481,7 +487,7 @@ export default function Dashboard() {
               rel="noreferrer"
               className="inline-flex items-center gap-2 text-xs font-bold text-blue-600 hover:text-blue-700"
             >
-              <Link2 className="h-4.5 w-4.5" />
+              <Link2 className="h-[18px] w-[18px]" />
               View Original Job Post
               <ExternalLink className="h-3.5 w-3.5" />
             </a>
@@ -587,7 +593,7 @@ export default function Dashboard() {
                   {activeJobDetails.requirements.responsibilities?.length > 0 ? (
                     activeJobDetails.requirements.responsibilities.map((resp: string, index: number) => (
                       <div key={index} className="flex items-start gap-2.5 text-xs text-slate-600 font-semibold leading-relaxed">
-                        <CheckCircle className="h-4.5 w-4.5 text-blue-500 flex-shrink-0 mt-0.5" />
+                        <CheckCircle className="h-[18px] w-[18px] text-blue-500 flex-shrink-0 mt-0.5" />
                         <span>{resp}</span>
                       </div>
                     ))
@@ -642,6 +648,7 @@ export default function Dashboard() {
         sender: 'AI',
         content: res.data.response,
         jobs: res.data.jobs || [],
+        searchLinks: res.data.searchLinks || [],
         timestamp: new Date()
       };
 
@@ -747,7 +754,7 @@ export default function Dashboard() {
             {/* LEFT COLUMN: CHAT INTERFACE (Col span 7) */}
             <div className="lg:col-span-7 flex flex-col rounded-3xl border border-slate-100 bg-white shadow-xl shadow-slate-100/40 overflow-hidden h-full">
               {/* Chat Header */}
-              <div className="bg-slate-50/50 border-b border-slate-100 py-4.5 px-6 flex items-center justify-between">
+              <div className="bg-slate-50/50 border-b border-slate-100 py-[18px] px-6 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600 shadow-sm border border-blue-100/20">
                     <Sparkles className="h-5 w-5 animate-pulse" />
@@ -776,7 +783,7 @@ export default function Dashboard() {
                       
                       <div className="max-w-[85%] space-y-4">
                         {/* Text Message Bubble */}
-                        <div className={`rounded-2xl p-4.5 text-sm font-medium whitespace-pre-wrap text-left leading-relaxed ${
+                        <div className={`rounded-2xl p-[18px] text-sm font-medium whitespace-pre-wrap text-left leading-relaxed ${
                           isAI 
                             ? 'bg-slate-50 text-slate-700 border border-slate-100/50' 
                             : 'bg-blue-600 text-white shadow-md shadow-blue-100'
@@ -784,13 +791,32 @@ export default function Dashboard() {
                           {msg.content}
                         </div>
 
+                        {/* Deep links to external job platforms */}
+                        {msg.searchLinks && msg.searchLinks.length > 0 && (
+                          <div className="flex flex-wrap items-center gap-2 text-left">
+                            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Also search on</span>
+                            {msg.searchLinks.map((link) => (
+                              <a
+                                key={link.platform}
+                                href={link.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:border-blue-300 hover:text-blue-600 transition-colors"
+                              >
+                                {link.platform}
+                                <ExternalLink className="h-3 w-3 text-slate-400" />
+                              </a>
+                            ))}
+                          </div>
+                        )}
+
                         {/* Interactive Discovered Job Cards */}
                         {msg.jobs && msg.jobs.length > 0 && (
                           <div className="space-y-3 mt-4 text-left">
                             {msg.jobs.map((job) => {
                               const isAlreadySaved = savedJobs.some((saved) => saved.title === job.title && saved.company === job.company);
                               return (
-                                <div key={job.id} className="rounded-2xl border border-slate-100 p-5 bg-white hover:border-blue-300 hover:shadow-lg hover:shadow-slate-100/50 transition-all space-y-4.5 shadow-sm">
+                                <div key={job.id} className="rounded-2xl border border-slate-100 p-5 bg-white hover:border-blue-300 hover:shadow-lg hover:shadow-slate-100/50 transition-all space-y-[18px] shadow-sm">
                                   <div className="flex justify-between items-start gap-4">
                                     <div>
                                       <h3 className="font-bold text-slate-800 text-base">{job.title}</h3>
@@ -869,7 +895,7 @@ export default function Dashboard() {
                     <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white shadow-sm font-bold text-xs select-none">
                       JP
                     </div>
-                    <div className="rounded-2xl p-4.5 bg-slate-50 border border-slate-100/50 flex items-center gap-1">
+                    <div className="rounded-2xl p-[18px] bg-slate-50 border border-slate-100/50 flex items-center gap-1">
                       <div className="h-2 w-2 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '0ms' }} />
                       <div className="h-2 w-2 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '150ms' }} />
                       <div className="h-2 w-2 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '300ms' }} />
@@ -888,14 +914,14 @@ export default function Dashboard() {
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   placeholder="Ask JobPilot to find jobs, analyze experience, or optimize details..."
-                  className="flex-grow rounded-xl border border-slate-200 py-3 px-4.5 text-sm bg-slate-50/50 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50 font-medium"
+                  className="flex-grow rounded-xl border border-slate-200 py-3 px-[18px] text-sm bg-slate-50/50 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50 font-medium"
                 />
                 <button
                   type="submit"
                   disabled={chatLoading || !chatInput.trim()}
                   className="rounded-xl bg-blue-600 hover:bg-blue-700 p-3 text-white shadow-md shadow-blue-100 transition-all disabled:opacity-40"
                 >
-                  <Send className="h-4.5 w-4.5" />
+                  <Send className="h-[18px] w-[18px]" />
                 </button>
               </form>
             </div>
@@ -1203,7 +1229,7 @@ export default function Dashboard() {
 
                       {/* Current Role / Company */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-slate-100">
-                        <div className="bg-slate-50/50 rounded-2xl border border-slate-100 p-4.5 flex items-start gap-4">
+                        <div className="bg-slate-50/50 rounded-2xl border border-slate-100 p-[18px] flex items-start gap-4">
                           <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
                             <Briefcase className="h-5.5 w-5.5" />
                           </div>
@@ -1215,7 +1241,7 @@ export default function Dashboard() {
                           </div>
                         </div>
 
-                        <div className="bg-slate-50/50 rounded-2xl border border-slate-100 p-4.5 flex items-start gap-4">
+                        <div className="bg-slate-50/50 rounded-2xl border border-slate-100 p-[18px] flex items-start gap-4">
                           <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
                             <Building className="h-5.5 w-5.5" />
                           </div>
@@ -1389,7 +1415,7 @@ export default function Dashboard() {
                           {resumes.map((resume) => (
                             <div 
                               key={resume.id}
-                              className="flex items-center justify-between rounded-2xl border border-slate-100 p-4.5 bg-slate-50/20 hover:bg-slate-50 transition-colors"
+                              className="flex items-center justify-between rounded-2xl border border-slate-100 p-[18px] bg-slate-50/20 hover:bg-slate-50 transition-colors"
                             >
                               <div className="min-w-0 pr-3">
                                 <p className="truncate text-sm font-bold text-slate-800" title={resume.fileName}>
@@ -1407,12 +1433,12 @@ export default function Dashboard() {
                                   title="Parse Resume with AI"
                                 >
                                   {parseResumeMutation.isPending ? (
-                                    <svg className="h-4.5 w-4.5 animate-spin text-blue-600" fill="none" viewBox="0 0 24 24">
+                                    <svg className="h-[18px] w-[18px] animate-spin text-blue-600" fill="none" viewBox="0 0 24 24">
                                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                                     </svg>
                                   ) : (
-                                    <Sparkles className="h-4.5 w-4.5" />
+                                    <Sparkles className="h-[18px] w-[18px]" />
                                   )}
                                 </button>
                                 <button
@@ -1420,7 +1446,7 @@ export default function Dashboard() {
                                   className="rounded-lg bg-slate-100 p-2 text-slate-600 hover:bg-blue-100 hover:text-blue-600 transition-colors"
                                   title="Download original file"
                                 >
-                                  <Download className="h-4.5 w-4.5" />
+                                  <Download className="h-[18px] w-[18px]" />
                                 </button>
                                 <button
                                   onClick={() => {
@@ -1432,7 +1458,7 @@ export default function Dashboard() {
                                   className="rounded-lg bg-rose-50 p-2 text-rose-500 hover:bg-rose-100 hover:text-rose-600 transition-colors disabled:opacity-50"
                                   title="Delete resume"
                                 >
-                                  <Trash2 className="h-4.5 w-4.5" />
+                                  <Trash2 className="h-[18px] w-[18px]" />
                                 </button>
                               </div>
                             </div>
@@ -1462,7 +1488,7 @@ export default function Dashboard() {
                   onClick={() => { setIsAddingJobManually(true); setSelectedJob(null); }}
                   className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 px-5 text-sm font-bold text-white hover:bg-blue-700 shadow-md shadow-blue-200 transition-colors self-start sm:self-center"
                 >
-                  <Plus className="h-4.5 w-4.5" />
+                  <Plus className="h-[18px] w-[18px]" />
                   Add Job Manually
                 </button>
               )}
@@ -1512,7 +1538,7 @@ export default function Dashboard() {
                             <button
                               key={job.id}
                               onClick={() => { setSelectedJob(job); setIsAddingJobManually(false); }}
-                              className={`w-full text-left rounded-2xl border p-4.5 transition-all flex items-start justify-between gap-3 ${
+                              className={`w-full text-left rounded-2xl border p-[18px] transition-all flex items-start justify-between gap-3 ${
                                 isSelected 
                                   ? 'border-blue-600 bg-blue-50/20 ring-1 ring-blue-600' 
                                   : 'border-slate-100 bg-slate-50/10 hover:bg-slate-50/50 hover:border-slate-200'
@@ -1534,7 +1560,7 @@ export default function Dashboard() {
                                   </span>
                                 </div>
                               </div>
-                              <ChevronRight className="h-4.5 w-4.5 text-slate-400 self-center flex-shrink-0" />
+                              <ChevronRight className="h-[18px] w-[18px] text-slate-400 self-center flex-shrink-0" />
                             </button>
                           );
                         })}
