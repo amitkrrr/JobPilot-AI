@@ -23,7 +23,9 @@ public class DeepLinkService {
         return List.of(
                 new SearchLink("LinkedIn", linkedIn(keywords, location, request.isRemote())),
                 new SearchLink("Naukri", naukri(keywords, location)),
-                new SearchLink("Instahyre", instahyre(keywords, location)));
+                new SearchLink("Instahyre", instahyre(keywords, location)),
+                new SearchLink("Cutshort", cutshort(keywords, location)),
+                new SearchLink("Greenhouse", greenhouse(keywords)));
     }
 
     private String keywords(JobSearchRequest request) {
@@ -69,6 +71,22 @@ public class DeepLinkService {
 
     private String slug(String s) {
         return s.toLowerCase().replaceAll("[^a-z0-9]+", "-").replaceAll("^-|-$", "");
+    }
+
+    private String cutshort(String keywords, String location) {
+        StringBuilder sb = new StringBuilder("https://cutshort.io/jobs#")
+                .append("?q=").append(enc(keywords));
+        if (!location.isEmpty()) {
+            sb.append("&city=").append(enc(location));
+        }
+        return sb.toString();
+    }
+
+    private String greenhouse(String keywords) {
+        // Greenhouse is a recruiting platform used by thousands of companies.
+        // Their public job board index: https://boards.greenhouse.io/
+        // We redirect to a Google site search as there's no global search endpoint.
+        return "https://www.google.com/search?q=" + enc("site:boards.greenhouse.io " + keywords + " jobs");
     }
 
     private String enc(String s) {

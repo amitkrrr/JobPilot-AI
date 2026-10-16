@@ -13,6 +13,7 @@ import com.jobpilot.dto.job.JobRequest;
 import com.jobpilot.dto.job.JobResponse;
 import com.jobpilot.dto.job.MatchScoreResponse;
 import com.jobpilot.dto.job.ParsedJobRequirementResponse;
+import com.jobpilot.kafka.ApplicationEventProducer;
 import com.jobpilot.user.CandidateProfile;
 import com.jobpilot.user.CandidateProfileRepository;
 import com.jobpilot.user.User;
@@ -26,15 +27,19 @@ public class JobService {
     private final JobRequirementRepository jobRequirementRepository;
     private final AIJobClient aiJobClient;
     private final CandidateProfileRepository candidateProfileRepository;
+    // Null when kafka.enabled=false (no broker running locally)
+    private final ApplicationEventProducer applicationEventProducer;
 
     public JobService(JobRepository jobRepository,
                       JobRequirementRepository jobRequirementRepository,
                       AIJobClient aiJobClient,
-                      CandidateProfileRepository candidateProfileRepository) {
+                      CandidateProfileRepository candidateProfileRepository,
+                      @jakarta.annotation.Nullable ApplicationEventProducer applicationEventProducer) {
         this.jobRepository = jobRepository;
         this.jobRequirementRepository = jobRequirementRepository;
         this.aiJobClient = aiJobClient;
         this.candidateProfileRepository = candidateProfileRepository;
+        this.applicationEventProducer = applicationEventProducer;
     }
 
     @Transactional
@@ -106,6 +111,10 @@ public class JobService {
                 .orElseThrow(() -> new IllegalArgumentException("Job not found or unauthorized"));
         job.setStatus(status);
         Job savedJob = jobRepository.save(job);
+        // Publish async status-change event (no-op when Kafka is not enabled)
+        if (applicationEventProducer != null) {
+            applicationEventProducer.publishStatusChange(user.getId(), savedJob.getId(), status);
+        }
         return new JobResponse(savedJob);
     }
 

@@ -1,12 +1,13 @@
 package com.jobpilot.search;
 
+import java.io.Serializable;
 import java.util.List;
 
 /**
  * Platform-agnostic job model. Every connector maps its raw response
  * into this structure so all downstream logic works with one model.
  */
-public class NormalizedJob {
+public class NormalizedJob implements Serializable {
 
     private String sourceJobId;
     private String source;

@@ -11,6 +11,7 @@ import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 /**
@@ -32,9 +33,14 @@ public class JobSearchService {
         this.executor = Executors.newFixedThreadPool(sources.size() > 0 ? sources.size() : 2);
     }
 
+    /**
+     * Cache key: role|skill1,skill2|location|page — TTL configured via cache.job-search.ttl-seconds.
+     * Uses Spring's @Cacheable with the "jobSearch" cache managed by RedisCacheManager.
+     */
+    @Cacheable(value = "jobSearch", key = "#request.cacheKey()")
     public ChatSearchResult search(JobSearchRequest request) {
-        log.info("Searching {} connector(s) for role='{}' location='{}'",
-                sources.size(), request.getRole(), request.getLocation());
+        log.info("Cache MISS — searching {} connector(s) for role='{}' location='{}' page={}",
+                sources.size(), request.getRole(), request.getLocation(), request.getPage());
         // Query all connectors in parallel
         List<CompletableFuture<JobSourceResult>> futures = sources.stream()
                 .map(source -> CompletableFuture.supplyAsync(() -> source.search(request), executor))

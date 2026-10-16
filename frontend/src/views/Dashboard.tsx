@@ -78,6 +78,19 @@ interface SearchLink {
   url: string;
 }
 
+interface OptimizeSuggestion {
+  priority: 'HIGH' | 'MEDIUM' | 'LOW';
+  category: string;
+  suggestion: string;
+}
+
+interface OptimizeResult {
+  overallScore: number;
+  summary: string;
+  suggestions: OptimizeSuggestion[];
+  missingKeywords: string[];
+}
+
 interface Message {
   id: string;
   sender: 'USER' | 'AI';
@@ -112,6 +125,9 @@ export default function Dashboard() {
   const [chatLoading, setChatLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [parsingResumeIds, setParsingResumeIds] = useState<Set<number>>(new Set());
+  const [optimizingResumeId, setOptimizingResumeId] = useState<number | null>(null);
+  const [optimizeResult, setOptimizeResult] = useState<OptimizeResult | null>(null);
+  const [optimizeModalResumeId, setOptimizeModalResumeId] = useState<number | null>(null);
   const [jobNotes, setJobNotes] = useState('');
 
   // Profile Edit / Create state
@@ -324,6 +340,22 @@ export default function Dashboard() {
         next.delete(resumeId);
         return next;
       });
+    }
+  };
+
+  // Resume Optimization Handler
+  const handleOptimizeResume = async (resumeId: number) => {
+    setOptimizingResumeId(resumeId);
+    setOptimizeResult(null);
+    setOptimizeModalResumeId(resumeId);
+    try {
+      const res = await api.post(`/resumes/${resumeId}/optimize`);
+      setOptimizeResult(res.data as OptimizeResult);
+    } catch (err: any) {
+      setOptimizeModalResumeId(null);
+      alert(err.response?.data?.message || 'Resume optimization failed. Please try again.');
+    } finally {
+      setOptimizingResumeId(null);
     }
   };
 
@@ -563,8 +595,11 @@ export default function Dashboard() {
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Status:</span>
                 <select
-                  value={activeJobDetails?.status || selectedJob.status || 'SAVED'}
-                  onChange={(e) => updateJobStatusMutation.mutate({ jobId: selectedJob.id, status: e.target.value })}
+                  value={selectedJob.status || activeJobDetails?.status || 'SAVED'}
+                  onChange={(e) => {
+                    if (!selectedJob.id) return;
+                    updateJobStatusMutation.mutate({ jobId: selectedJob.id, status: e.target.value });
+                  }}
                   disabled={updateJobStatusMutation.isPending}
                   className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-bold bg-white text-slate-700 focus:border-blue-500 focus:outline-none"
                 >
@@ -1682,13 +1717,28 @@ export default function Dashboard() {
                                     <Sparkles className="h-[18px] w-[18px]" />
                                   )}
                                 </button>
-                                <button
-                                  onClick={() => handleDownload(resume.id, resume.fileName)}
-                                  className="rounded-lg bg-slate-100 p-2 text-slate-600 hover:bg-blue-100 hover:text-blue-600 transition-colors"
-                                  title="Download original file"
-                                >
-                                  <Download className="h-[18px] w-[18px]" />
-                                </button>
+                                 <button
+                                   onClick={() => handleOptimizeResume(resume.id)}
+                                   disabled={optimizingResumeId === resume.id}
+                                   className="rounded-lg bg-violet-50 p-2 text-violet-600 hover:bg-violet-100 hover:text-violet-700 transition-colors disabled:opacity-50 flex items-center justify-center"
+                                   title="Optimize Resume with AI"
+                                 >
+                                   {optimizingResumeId === resume.id ? (
+                                     <svg className="h-[18px] w-[18px] animate-spin text-violet-600" fill="none" viewBox="0 0 24 24">
+                                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                     </svg>
+                                   ) : (
+                                     <Edit className="h-[18px] w-[18px]" />
+                                   )}
+                                 </button>
+                                 <button
+                                   onClick={() => handleDownload(resume.id, resume.fileName)}
+                                   className="rounded-lg bg-slate-100 p-2 text-slate-600 hover:bg-blue-100 hover:text-blue-600 transition-colors"
+                                   title="Download original file"
+                                 >
+                                   <Download className="h-[18px] w-[18px]" />
+                                 </button>
                                 <button
                                   onClick={() => {
                                     if (confirm(`Delete "${resume.fileName}"? This cannot be undone.`)) {
@@ -1711,6 +1761,122 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
+
+            {/* ===================== RESUME OPTIMIZE MODAL ===================== */}
+            {optimizeModalResumeId !== null && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+                <div className="w-full max-w-lg rounded-3xl bg-white shadow-2xl border border-slate-100 flex flex-col max-h-[90vh]">
+                  {/* Modal header */}
+                  <div className="flex items-center justify-between border-b border-slate-100 px-7 py-5">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-600 border border-violet-100/30">
+                        <Sparkles className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h2 className="text-sm font-extrabold text-[#0f172a]">AI Resume Optimization</h2>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">powered by Gemini</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => { setOptimizeModalResumeId(null); setOptimizeResult(null); }}
+                      className="rounded-xl border border-slate-200 p-2 text-slate-400 hover:bg-slate-50 hover:text-slate-700 transition-colors"
+                    >
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  {/* Modal body */}
+                  <div className="overflow-y-auto px-7 py-6 space-y-6 flex-grow">
+                    {!optimizeResult ? (
+                      /* Loading state */
+                      <div className="flex flex-col items-center justify-center py-16 space-y-4">
+                        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-50 text-violet-600 animate-pulse border border-violet-100/30">
+                          <Sparkles className="h-7 w-7 animate-spin" />
+                        </div>
+                        <p className="text-xs font-extrabold text-[#0f172a] animate-pulse">Analyzing your resume...</p>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">JobPilot AI NLP Engine</p>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Overall Score ring */}
+                        <div className="flex flex-col items-center gap-4 py-4">
+                          <div className={`flex h-24 w-24 items-center justify-center rounded-full border-4 font-extrabold text-3xl ${
+                            optimizeResult.overallScore >= 75
+                              ? 'border-emerald-400 text-emerald-600 bg-emerald-50'
+                              : optimizeResult.overallScore >= 50
+                                ? 'border-amber-400 text-amber-600 bg-amber-50'
+                                : 'border-rose-400 text-rose-600 bg-rose-50'
+                          }`}>
+                            {optimizeResult.overallScore}
+                          </div>
+                          <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Overall Resume Score</p>
+                        </div>
+
+                        {/* Summary */}
+                        <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-5">
+                          <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider mb-2">AI Summary</p>
+                          <p className="text-sm font-semibold text-slate-700 leading-relaxed">{optimizeResult.summary}</p>
+                        </div>
+
+                        {/* Suggestions */}
+                        {optimizeResult.suggestions?.length > 0 && (
+                          <div className="space-y-3">
+                            <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Improvement Suggestions</p>
+                            {optimizeResult.suggestions.map((s, i) => (
+                              <div key={i} className={`rounded-2xl border p-4 space-y-1 ${
+                                s.priority === 'HIGH'
+                                  ? 'border-rose-100 bg-rose-50/40'
+                                  : s.priority === 'MEDIUM'
+                                    ? 'border-amber-100 bg-amber-50/40'
+                                    : 'border-emerald-100 bg-emerald-50/40'
+                              }`}>
+                                <div className="flex items-center gap-2">
+                                  <span className={`rounded-md px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider ${
+                                    s.priority === 'HIGH'
+                                      ? 'bg-rose-100 text-rose-700'
+                                      : s.priority === 'MEDIUM'
+                                        ? 'bg-amber-100 text-amber-700'
+                                        : 'bg-emerald-100 text-emerald-700'
+                                  }`}>{s.priority}</span>
+                                  <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">{s.category}</span>
+                                </div>
+                                <p className="text-xs font-semibold text-slate-700 leading-relaxed">{s.suggestion}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Missing Keywords */}
+                        {optimizeResult.missingKeywords?.length > 0 && (
+                          <div className="space-y-3">
+                            <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Missing Keywords</p>
+                            <div className="flex flex-wrap gap-2">
+                              {optimizeResult.missingKeywords.map((kw, i) => (
+                                <span key={i} className="inline-flex items-center rounded-lg bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600 border border-slate-200">
+                                  {kw}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  {/* Modal footer */}
+                  <div className="border-t border-slate-100 px-7 py-4">
+                    <button
+                      onClick={() => { setOptimizeModalResumeId(null); setOptimizeResult(null); }}
+                      className="w-full rounded-xl bg-slate-100 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-200 transition-colors"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         )}
 

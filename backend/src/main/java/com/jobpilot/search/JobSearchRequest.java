@@ -1,6 +1,7 @@
 package com.jobpilot.search;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Structured search intent produced by Gemini intent classification.
@@ -73,5 +74,18 @@ public class JobSearchRequest {
 
     public void setPage(int page) {
         this.page = page;
+    }
+
+    /**
+     * Stable cache key used by @Cacheable in JobSearchService.
+     * Format: "role|skill1,skill2|location|remote|page"
+     */
+    public String cacheKey() {
+        String roleKey = role != null ? role.toLowerCase().trim() : "";
+        String skillsKey = skills != null
+                ? skills.stream().map(String::toLowerCase).sorted().collect(Collectors.joining(","))
+                : "";
+        String locationKey = location != null ? location.toLowerCase().trim() : "";
+        return roleKey + "|" + skillsKey + "|" + locationKey + "|" + remote + "|" + page;
     }
 }

@@ -7,13 +7,16 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
+import com.jobpilot.config.ChatRateLimiter;
 import com.jobpilot.dto.chat.ChatMessageResponse;
 import com.jobpilot.dto.chat.ChatRequest;
 import com.jobpilot.dto.chat.ChatResponse;
@@ -48,6 +51,7 @@ public class ChatController {
     private final DeepLinkService deepLinkService;
     private final ChatMessageRepository chatMessageRepository;
     private final UserRepository userRepository;
+    private final ChatRateLimiter rateLimiter;
 
     public ChatController(
             AIChatClient aiChatClient,
@@ -55,13 +59,15 @@ public class ChatController {
             JobSearchService jobSearchService,
             DeepLinkService deepLinkService,
             ChatMessageRepository chatMessageRepository,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            ChatRateLimiter rateLimiter) {
         this.aiChatClient = aiChatClient;
         this.profileService = profileService;
         this.jobSearchService = jobSearchService;
         this.deepLinkService = deepLinkService;
         this.chatMessageRepository = chatMessageRepository;
         this.userRepository = userRepository;
+        this.rateLimiter = rateLimiter;
     }
 
     @GetMapping("/history")
@@ -87,6 +93,12 @@ public class ChatController {
         User user = null;
         if (authentication != null) {
             user = userRepository.findByEmail(authentication.getName()).orElse(null);
+        }
+
+        // Rate limiting — 20 chat requests per minute per user
+        if (user != null && !rateLimiter.isAllowed(user.getEmail())) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                    "You've sent too many messages. Please wait a moment before trying again.");
         }
 
         // 1. Load profile context for personalized intent extraction

@@ -90,3 +90,32 @@ class MatchResult(BaseModel):
     strengths: List[str] = Field(default_factory=list, description="Key candidate strengths matching the role")
     gaps: List[str] = Field(default_factory=list, description="Missing skills or gaps for the role")
     verdict: str = Field(..., description="Overall summary verdict on the fit")
+
+class ResumeOptimizeRequest(BaseModel):
+    resume_text: Optional[str] = Field(None, description="Plain text of the candidate's resume (legacy)")
+    resume_pdf_b64: Optional[str] = Field(None, description="Base64-encoded raw PDF bytes — preferred over resume_text")
+    job_description: Optional[str] = Field(None, description="Target job description for tailored suggestions")
+    target_role: Optional[str] = Field(None, description="Target job role or title")
+
+class ResumeOptimizeSuggestion(BaseModel):
+    category: str = Field(..., description="Category: Summary, Skills, Experience, Keywords, Format")
+    suggestion: str = Field(..., description="Specific, actionable improvement suggestion")
+    priority: str = Field(..., description="HIGH, MEDIUM, or LOW")
+
+class ResumeOptimizeResult(BaseModel):
+    # Use camelCase aliases so Spring's Jackson deserializer gets overallScore / missingKeywords
+    # without needing any Jackson 3.x annotation on the Java side.
+    overallScore: int = Field(..., alias="overall_score", description="Resume quality score 0-100")
+    summary: str = Field(..., description="Brief overall assessment")
+    suggestions: List[ResumeOptimizeSuggestion] = Field(default_factory=list)
+    missingKeywords: List[str] = Field([], alias="missing_keywords", description="Important keywords missing from resume")
+
+    model_config = {"populate_by_name": True}
+
+    def model_dump_camel(self):
+        return {
+            "overallScore": self.overallScore,
+            "summary": self.summary,
+            "suggestions": [s.model_dump() for s in self.suggestions],
+            "missingKeywords": self.missingKeywords,
+        }

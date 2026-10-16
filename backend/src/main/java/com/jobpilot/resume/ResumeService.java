@@ -6,13 +6,16 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.jobpilot.dto.resume.ResumeOptimizeResponse;
 import com.jobpilot.dto.resume.ResumeResponse;
+import com.jobpilot.job.Job;
+import com.jobpilot.job.JobRepository;
+import com.jobpilot.kafka.ResumeEventProducer;
 import com.jobpilot.storage.StorageService;
 import com.jobpilot.user.CandidateProfile;
 import com.jobpilot.user.CandidateProfileRepository;
 import com.jobpilot.user.User;
 import com.jobpilot.user.UserRepository;
-
 @Service
 public class ResumeService {
 
@@ -21,19 +24,26 @@ public class ResumeService {
     private final UserRepository userRepository;
     private final StorageService storageService;
     private final AIParsingClient aiParsingClient;
+    private final JobRepository jobRepository;
+    // Null when kafka.enabled=false (no broker running locally)
+    private final ResumeEventProducer resumeEventProducer;
 
     public ResumeService(
             ResumeRepository resumeRepository,
             CandidateProfileRepository profileRepository,
             UserRepository userRepository,
             StorageService storageService,
-            AIParsingClient aiParsingClient) {
+            AIParsingClient aiParsingClient,
+            JobRepository jobRepository,
+            @jakarta.annotation.Nullable ResumeEventProducer resumeEventProducer) {
 
         this.resumeRepository = resumeRepository;
         this.profileRepository = profileRepository;
         this.userRepository = userRepository;
         this.storageService = storageService;
         this.aiParsingClient = aiParsingClient;
+        this.jobRepository = jobRepository;
+        this.resumeEventProducer = resumeEventProducer;
     }
 
     public ResumeResponse uploadResume(String email, String fileName, String contentType, byte[] bytes) {
@@ -53,6 +63,12 @@ public class ResumeService {
         // Save metadata in PostgreSQL
         Resume resume = new Resume(profile, fileName, contentType, s3Key);
         Resume savedResume = resumeRepository.save(resume);
+
+        // Publish async parse event so the Kafka consumer can call the AI service
+        // Publish async parse event (no-op when Kafka is not enabled)
+        if (resumeEventProducer != null) {
+            resumeEventProducer.publishParseRequest(savedResume.getId(), s3Key);
+        }
 
         return toResponse(savedResume);
     }
@@ -158,6 +174,29 @@ public class ResumeService {
                 savedProfile.getPortfolioUrl(),
                 savedProfile.getSkills()
         );
+    }
+
+    public ResumeOptimizeResponse optimizeResume(String email, Long resumeId, String targetRole, Long targetJobId) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        CandidateProfile profile = profileRepository.findByUserId(user.getId())
+                .orElseThrow(() -> new IllegalArgumentException("Candidate profile not found."));
+
+        Resume resume = resumeRepository.findByIdAndCandidateProfileId(resumeId, profile.getId())
+                .orElseThrow(() -> new IllegalArgumentException("Resume not found or access denied."));
+
+        // Download raw PDF bytes and encode as base64 — Python service uses pypdf to extract text
+        byte[] pdfBytes = storageService.downloadFile(resume.getS3Key());
+        String resumePdfB64 = java.util.Base64.getEncoder().encodeToString(pdfBytes);
+
+        // Optionally fetch job description for tailored suggestions
+        String jobDescription = targetJobId != null
+                ? jobRepository.findByIdAndUser(targetJobId, user)
+                        .map(Job::getDescription).orElse(null)
+                : null;
+
+        return aiParsingClient.optimizeResume(resumePdfB64, jobDescription, targetRole);
     }
 
     @Transactional

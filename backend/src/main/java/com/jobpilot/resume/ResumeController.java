@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.jobpilot.dto.resume.ResumeOptimizeResponse;
 import com.jobpilot.dto.resume.ResumeResponse;
 
 @RestController
@@ -68,6 +69,15 @@ public class ResumeController {
             Authentication authentication,
             @PathVariable Long id) {
         return resumeService.parseAndPopulateProfile(authentication.getName(), id);
+    }
+
+    @PostMapping("/{id}/optimize")
+    public ResumeOptimizeResponse optimizeResume(
+            Authentication authentication,
+            @PathVariable Long id,
+            @RequestParam(required = false) String targetRole,
+            @RequestParam(required = false) Long targetJobId) {
+        return resumeService.optimizeResume(authentication.getName(), id, targetRole, targetJobId);
     }
 
     @DeleteMapping("/{id}")

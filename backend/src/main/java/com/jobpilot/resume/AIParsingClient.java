@@ -10,6 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import com.jobpilot.dto.resume.ResumeOptimizeResponse;
 import com.jobpilot.dto.resume.ResumeParsedResponse;
 
 @Service
@@ -21,6 +22,25 @@ public class AIParsingClient {
 
     public AIParsingClient(@Value("${ai.service.url:http://localhost:8000}") String aiServiceUrl) {
         this.restClient = RestClient.create(aiServiceUrl);
+    }
+
+    public ResumeOptimizeResponse optimizeResume(String resumePdfB64, String jobDescription, String targetRole) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("resume_pdf_b64", resumePdfB64);
+        if (jobDescription != null) payload.put("job_description", jobDescription);
+        if (targetRole != null) payload.put("target_role", targetRole);
+
+        try {
+            return restClient.post()
+                    .uri("/api/ai/optimize-resume")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(payload)
+                    .retrieve()
+                    .body(ResumeOptimizeResponse.class);
+        } catch (Exception e) {
+            log.error("Failed to contact Python AI Resume Optimizer: {}", e.getMessage());
+            throw new IllegalStateException("Resume optimization service is temporarily unavailable.", e);
+        }
     }
 
     public ResumeParsedResponse parseResume(String s3Key) {

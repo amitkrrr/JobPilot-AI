@@ -1,5 +1,6 @@
 package com.jobpilot.search;
 
+import java.io.Serializable;
 import java.util.List;
 
 /**
@@ -7,12 +8,16 @@ import java.util.List;
  * Carries status alongside jobs so the orchestrator can build
  * a transparent message like "24 jobs from Adzuna; Jooble unavailable."
  */
-public class JobSourceResult {
+public class JobSourceResult implements Serializable {
 
     private String source;
     private SearchStatus status;
     private List<NormalizedJob> jobs;
     private String error;
+
+    /** Required by Jackson for Redis deserialization. */
+    public JobSourceResult() {
+    }
 
     public JobSourceResult(String source, SearchStatus status, List<NormalizedJob> jobs) {
         this.source = source;
@@ -27,19 +32,15 @@ public class JobSourceResult {
         this.error = error;
     }
 
-    public String getSource() {
-        return source;
-    }
+    public String getSource() { return source; }
+    public void setSource(String source) { this.source = source; }
 
-    public SearchStatus getStatus() {
-        return status;
-    }
+    public SearchStatus getStatus() { return status; }
+    public void setStatus(SearchStatus status) { this.status = status; }
 
-    public List<NormalizedJob> getJobs() {
-        return jobs;
-    }
+    public List<NormalizedJob> getJobs() { return jobs; }
+    public void setJobs(List<NormalizedJob> jobs) { this.jobs = jobs; }
 
-    public String getError() {
-        return error;
-    }
+    public String getError() { return error; }
+    public void setError(String error) { this.error = error; }
 }
